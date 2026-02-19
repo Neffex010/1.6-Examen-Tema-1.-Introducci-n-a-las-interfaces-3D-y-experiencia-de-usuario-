@@ -7,6 +7,7 @@ const GAME_HEIGHT = canvas.height;
 let gameState = 'START';
 let score = 0;
 let level = 1;
+let lives = 3; // NUEVO: Sistema de vidas
 let highScore = parseInt(localStorage.getItem('galagaHighScore')) || 0;
 
 let player;
@@ -55,7 +56,7 @@ const Synth = {
 const imgPlayer = new Image(); imgPlayer.src = 'img/nave.png';
 const imgEnemy = new Image(); imgEnemy.src = 'img/enemigo.png';
 const imgBoss = new Image(); imgBoss.src = 'img/jefe.png';
-const imgFondo = new Image(); imgFondo.src = 'img/fondo.png'; // Asegúrate de que la extensión sea correcta (jpg o png)
+const imgFondo = new Image(); imgFondo.src = 'img/fondo.png';
 
 // Esperar a que todas las imágenes carguen antes de iniciar el juego
 const images = [imgPlayer, imgEnemy, imgBoss, imgFondo];
@@ -64,12 +65,12 @@ images.forEach(img => {
     img.onload = () => {
         imagesLoaded++;
         if (imagesLoaded === images.length) {
-            animate(); // Inicia el bucle solo cuando todas están listas
+            animate();
         }
     };
     img.onerror = () => {
         console.warn('Error cargando imagen:', img.src);
-        imagesLoaded++; // Aún así contamos para no bloquear el juego
+        imagesLoaded++;
     };
 });
 
@@ -141,7 +142,6 @@ class Enemy {
         this.w = 32; this.h = 32;
         this.markedForDeletion = false;
         
-        // Propiedades Kamikaze
         this.isDiving = false; 
         this.angle = 0; 
     }
@@ -161,10 +161,13 @@ class Boss {
         this.dir = 1;
         this.bullets = [];
         this.shootCooldown = 0; 
+        this.hitTimer = 0; 
     }
     update() {
         this.x += this.speed * this.dir;
         if (this.x > GAME_WIDTH - this.w || this.x < 0) this.dir *= -1;
+
+        this.y = 80 + Math.sin(Date.now() / 300) * 20;
 
         if (this.shootCooldown <= 0) {
             this.bullets.push(new EnemyBullet(this.x + this.w/2, this.y + this.h));
@@ -178,7 +181,13 @@ class Boss {
         this.bullets = this.bullets.filter(b => !b.markedForDeletion);
     }
     draw(ctx) {
+        if (this.hitTimer > 0) {
+            ctx.globalAlpha = 0.5;
+            this.hitTimer--;
+        }
+        
         ctx.drawImage(imgBoss, this.x, this.y, this.w, this.h);
+        ctx.globalAlpha = 1.0; 
         
         const hpPercent = this.hp / this.maxHp;
         ctx.fillStyle = "red";
@@ -219,17 +228,19 @@ class Player {
         this.y = GAME_HEIGHT - 60;
         this.speed = 5;
         this.cooldown = 0;
+        this.invincibleTimer = 0; // NUEVO: Temporizador de invulnerabilidad
     }
     update(input) {
         if (this.cooldown > 0) this.cooldown--;
+        if (this.invincibleTimer > 0) this.invincibleTimer--; // Descontar invulnerabilidad
+
         if (input.keys.includes('ArrowLeft') && this.x > 0) this.x -= this.speed;
         if (input.keys.includes('ArrowRight') && this.x < GAME_WIDTH - this.w) this.x += this.speed;
         
         if (input.keys.includes('Space') && this.cooldown === 0) {
-            // Evolución de disparo
             if (level >= 3) {
-                bullets.push(new Bullet(this.x, this.y));
-                bullets.push(new Bullet(this.x + this.w - 4, this.y));
+                bullets.push(new Bullet(this.x + 6, this.y));          
+                bullets.push(new Bullet(this.x + this.w - 10, this.y)); 
             } else {
                 bullets.push(new Bullet(this.x + this.w/2 - 2, this.y));
             }
@@ -239,6 +250,10 @@ class Player {
         }
     }
     draw(ctx) {
+        // Efecto de parpadeo si es invulnerable
+        if (this.invincibleTimer > 0 && Math.floor(Date.now() / 100) % 2 === 0) {
+            return; // Salta el dibujo un frame sí y uno no
+        }
         ctx.drawImage(imgPlayer, this.x, this.y, this.w, this.h);
     }
 }
@@ -263,6 +278,10 @@ class InputHandler {
             const index = this.keys.indexOf(e.code);
             if (index > -1) this.keys.splice(index, 1);
         });
+        
+        window.addEventListener('blur', () => {
+            this.keys = [];
+        });
     }
 }
 
@@ -285,6 +304,7 @@ function initGame() {
     boss = null;
     score = 0;
     level = 1;
+    lives = 3; // Restaurar vidas
     enemySpeed = 2;
     enemyDir = 1;
     gameState = 'PLAYING';
@@ -311,11 +331,28 @@ function nextLevel() {
     }
 }
 
-function gameOver() {
-    gameState = 'GAMEOVER';
+// NUEVA FUNCIÓN: Lógica para perder una vida
+function loseLife() {
+    Synth.explosion();
+    // Generar explosión donde estaba el jugador
     for (let i = 0; i < 30; i++) {
         particles.push(new Particle(player.x + player.w/2, player.y + player.h/2, "red"));
     }
+    
+    lives--;
+    
+    if (lives <= 0) {
+        gameOver();
+    } else {
+        // Reaparecer al centro y dar inmunidad
+        player.x = GAME_WIDTH / 2 - player.w / 2;
+        player.y = GAME_HEIGHT - 60;
+        player.invincibleTimer = 120; // Aproximadamente 2 segundos a 60 FPS
+    }
+}
+
+function gameOver() {
+    gameState = 'GAMEOVER';
     if (score > highScore) {
         highScore = score;
         localStorage.setItem('galagaHighScore', highScore);
@@ -339,7 +376,14 @@ function drawUI() {
     ctx.fillText(`HI: ${highScore}`, 180, 30);
     ctx.fillText(`LVL: ${level}`, 380, 30);
 
-    if (gameState === 'START') {
+    if (gameState === 'PLAYING') {
+        // DIBUJAR VIDAS EN PANTALLA
+        ctx.font = "12px 'Press Start 2P', monospace"; 
+        ctx.fillText("LIVES:", 20, GAME_HEIGHT - 20);
+        for(let i = 0; i < lives; i++) {
+            ctx.drawImage(imgPlayer, 95 + (i * 25), GAME_HEIGHT - 35, 20, 20);
+        }
+    } else if (gameState === 'START') {
         ctx.fillStyle = "rgba(0,0,0,0.7)";
         ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
         ctx.fillStyle = "#00ffff";
@@ -402,6 +446,7 @@ function animate() {
                     
                     b.markedForDeletion = true;
                     boss.hp--; 
+                    boss.hitTimer = 5; 
                     Synth.bossHit();
                     particles.push(new Particle(b.x, b.y, "lime"));
 
@@ -418,20 +463,21 @@ function animate() {
             boss.bullets.forEach(bb => {
                 if (bb.x < player.x + player.w && bb.x + bb.w > player.x &&
                     bb.y < player.y + player.h && bb.y + bb.h > player.y) {
-                    gameOver();
+                    // Validar invulnerabilidad
+                    if (player.invincibleTimer <= 0) loseLife();
                 }
             });
 
             if (player.x < boss.x + boss.w && player.x + player.w > boss.x &&
                 player.y < boss.y + boss.h && player.y + player.h > boss.y) {
-                gameOver();
+                // Validar invulnerabilidad
+                if (player.invincibleTimer <= 0) loseLife();
             }
 
         } else {
             let hitEdge = false;
             enemies.forEach(en => {
                 
-                // Lógica Kamikaze
                 if (!en.isDiving) {
                     en.x += enemySpeed * enemyDir;
                     if (en.x > GAME_WIDTH - en.w || en.x < 0) hitEdge = true;
@@ -445,8 +491,7 @@ function animate() {
                     en.angle += 0.1;
 
                     if (en.y > GAME_HEIGHT) {
-                        en.y = -30;
-                        en.x = player.x + (Math.random() - 0.5) * 100;
+                        en.markedForDeletion = true;
                     }
                 }
 
@@ -467,7 +512,8 @@ function animate() {
 
                 if (player.x < en.x + en.w && player.x + player.w > en.x &&
                     player.y < en.y + en.h && player.y + player.h > en.y) {
-                    gameOver();
+                    // Validar invulnerabilidad
+                    if (player.invincibleTimer <= 0) loseLife();
                 }
             });
 
@@ -492,6 +538,7 @@ function animate() {
 
     particles.forEach(p => { p.update(); p.draw(ctx); });
     particles = particles.filter(p => p.alpha > 0);
+    if (particles.length > 500) particles = particles.slice(0, 500);
 
     drawUI();
     requestAnimationFrame(animate);
