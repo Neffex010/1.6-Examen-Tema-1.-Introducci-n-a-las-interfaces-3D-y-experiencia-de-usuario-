@@ -7,7 +7,7 @@ const GAME_HEIGHT = canvas.height;
 let gameState = 'START';
 let score = 0;
 let level = 1;
-let highScore = localStorage.getItem('galagaHighScore') || 0;
+let highScore = parseInt(localStorage.getItem('galagaHighScore')) || 0;
 
 let player;
 let enemies = [];
@@ -51,9 +51,27 @@ const Synth = {
     }
 };
 
+// Imágenes
 const imgPlayer = new Image(); imgPlayer.src = 'img/nave.png';
 const imgEnemy = new Image(); imgEnemy.src = 'img/enemigo.png';
 const imgBoss = new Image(); imgBoss.src = 'img/jefe.png';
+const imgFondo = new Image(); imgFondo.src = 'img/fondo.png';
+
+// Esperar a que todas las imágenes carguen antes de iniciar el juego
+const images = [imgPlayer, imgEnemy, imgBoss, imgFondo];
+let imagesLoaded = 0;
+images.forEach(img => {
+    img.onload = () => {
+        imagesLoaded++;
+        if (imagesLoaded === images.length) {
+            animate(); // Inicia el bucle solo cuando todas están listas
+        }
+    };
+    img.onerror = () => {
+        console.warn('Error cargando imagen:', img.src);
+        imagesLoaded++; // Aún así contamos para no bloquear el juego
+    };
+});
 
 class Particle {
     constructor(x, y, color) {
@@ -101,7 +119,7 @@ class Bullet {
 class EnemyBullet {
     constructor(x, y) {
         this.x = x; this.y = y;
-        this.w = 6; this.h = 14;
+        this.w = 8; this.h = 8; // Ajustado para coincidir con el círculo
         this.speed = 6;
         this.markedForDeletion = false;
     }
@@ -138,14 +156,19 @@ class Boss {
         this.speed = 3;
         this.dir = 1;
         this.bullets = [];
+        this.shootCooldown = 0; // Nuevo: cooldown para disparos
     }
     update() {
         this.x += this.speed * this.dir;
         if (this.x > GAME_WIDTH - this.w || this.x < 0) this.dir *= -1;
 
-        if (Math.random() < 0.05) {
+        // Disparo con cooldown (cada 20 frames aproximadamente)
+        if (this.shootCooldown <= 0) {
             this.bullets.push(new EnemyBullet(this.x + this.w/2, this.y + this.h));
-            Synth.playTone(200, 'sawtooth', 0.1); 
+            Synth.playTone(200, 'sawtooth', 0.1);
+            this.shootCooldown = 20; // ~0.33 segundos a 60fps
+        } else {
+            this.shootCooldown--;
         }
 
         this.bullets.forEach(b => b.update());
@@ -163,6 +186,28 @@ class Boss {
         this.bullets.forEach(b => b.draw(ctx));
     }
 }
+
+class Background {
+    constructor() {
+        this.x = 0;
+        this.y = 0;
+        this.width = GAME_WIDTH;
+        this.height = GAME_HEIGHT;
+        this.speed = 1;
+    }
+    update() {
+        this.y += this.speed;
+        if (this.y >= this.height) {
+            this.y = 0;
+        }
+    }
+    draw(ctx) {
+        ctx.drawImage(imgFondo, this.x, this.y, this.width, this.height);
+        ctx.drawImage(imgFondo, this.x, this.y - this.height, this.width, this.height);
+    }
+}
+
+const bg = new Background();
 
 class Player {
     constructor() {
@@ -192,7 +237,6 @@ class InputHandler {
     constructor() {
         this.keys = [];
         window.addEventListener('keydown', e => {
-            // ESTO ES LO NUEVO: Evita el scroll con Espacio y Flechas
             if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
                 e.preventDefault();
             }
@@ -257,6 +301,26 @@ function nextLevel() {
     }
 }
 
+function gameOver() {
+    gameState = 'GAMEOVER';
+    // Crear muchas partículas al morir
+    for (let i = 0; i < 30; i++) {
+        particles.push(new Particle(player.x + player.w/2, player.y + player.h/2, "red"));
+    }
+    if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('galagaHighScore', highScore);
+    }
+}
+
+function victory() {
+    gameState = 'VICTORY';
+    if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('galagaHighScore', highScore);
+    }
+}
+
 function drawUI() {
     ctx.fillStyle = "white";
     ctx.font = "14px 'Press Start 2P', monospace"; 
@@ -307,6 +371,10 @@ const input = new InputHandler();
 function animate() {
     ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
+    // Actualizar y dibujar fondo
+    bg.update();
+    bg.draw(ctx);
+
     if (gameState === 'PLAYING') {
         player.update(input);
         player.draw(ctx);
@@ -319,6 +387,7 @@ function animate() {
             boss.update();
             boss.draw(ctx);
 
+            // Colisiones balas del jugador con jefe
             bullets.forEach(b => {
                 if (!b.markedForDeletion &&
                     b.x < boss.x + boss.w && b.x + b.w > boss.x &&
@@ -334,28 +403,37 @@ function animate() {
                         Synth.explosion();
                         for(let i=0; i<50; i++) particles.push(new Particle(boss.x + boss.w/2, boss.y + boss.h/2, "lime"));
                         boss = null;
-                        setTimeout(() => { gameState = 'VICTORY'; }, 2000);
+                        setTimeout(() => { victory(); }, 2000);
                     }
                 }
             });
 
+            // Colisión balas del jefe con jugador
             boss.bullets.forEach(bb => {
                 if (bb.x < player.x + player.w && bb.x + bb.w > player.x &&
                     bb.y < player.y + player.h && bb.y + bb.h > player.y) {
-                    gameState = 'GAMEOVER';
-                    Synth.explosion();
+                    gameOver();
                 }
             });
 
-            if (boss.y + boss.h > player.y) gameState = 'GAMEOVER';
+            // Colisión jefe con jugador (ambos ejes)
+            if (player.x < boss.x + boss.w && player.x + player.w > boss.x &&
+                player.y < boss.y + boss.h && player.y + player.h > boss.y) {
+                gameOver();
+            }
 
         } else {
             let hitEdge = false;
             enemies.forEach(en => {
                 en.x += enemySpeed * enemyDir;
+
+                // Dibujar enemigo
                 en.draw(ctx);
+
+                // Detectar si toca el borde
                 if (en.x > GAME_WIDTH - en.w || en.x < 0) hitEdge = true;
 
+                // Colisiones balas del jugador con enemigos
                 bullets.forEach(b => {
                     if (!b.markedForDeletion && !en.markedForDeletion &&
                         b.x < en.x + en.w && b.x + b.w > en.x &&
@@ -369,12 +447,21 @@ function animate() {
                     }
                 });
 
-                if (en.y + en.h > player.y) gameState = 'GAMEOVER';
+                // Colisión enemigo con jugador (ambos ejes)
+                if (player.x < en.x + en.w && player.x + player.w > en.x &&
+                    player.y < en.y + en.h && player.y + player.h > en.y) {
+                    gameOver();
+                }
             });
 
             if (hitEdge) {
                 enemyDir *= -1;
-                enemies.forEach(en => en.y += 20);
+                enemies.forEach(en => {
+                    en.y += 20;
+                    // Corregir posición si se sale del borde para evitar acumulación
+                    if (en.x < 0) en.x = 0;
+                    if (en.x > GAME_WIDTH - en.w) en.x = GAME_WIDTH - en.w;
+                });
             }
 
             enemies = enemies.filter(e => !e.markedForDeletion);
@@ -383,15 +470,9 @@ function animate() {
                 nextLevel();
             }
         }
-        
-        if (gameState === 'GAMEOVER' || gameState === 'VICTORY') {
-            if (score > highScore) {
-                highScore = score;
-                localStorage.setItem('galagaHighScore', highScore);
-            }
-        }
     }
 
+    // Partículas
     particles.forEach(p => { p.update(); p.draw(ctx); });
     particles = particles.filter(p => p.alpha > 0);
 
@@ -399,6 +480,5 @@ function animate() {
     requestAnimationFrame(animate);
 }
 
-imgPlayer.onload = () => {
-    animate();
-};
+// Si las imágenes ya estaban en caché, forzamos la animación
+if (imagesLoaded === images.length) animate();
