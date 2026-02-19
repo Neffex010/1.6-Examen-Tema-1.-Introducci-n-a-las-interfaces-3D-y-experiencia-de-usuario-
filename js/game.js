@@ -192,7 +192,13 @@ class InputHandler {
     constructor() {
         this.keys = [];
         window.addEventListener('keydown', e => {
+            // ESTO ES LO NUEVO: Evita el scroll con Espacio y Flechas
+            if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+                e.preventDefault();
+            }
+
             if (this.keys.indexOf(e.code) === -1) this.keys.push(e.code);
+            
             if (e.code === 'Enter') {
                 if (gameState === 'START' || gameState === 'GAMEOVER' || gameState === 'VICTORY') {
                     initGame();
