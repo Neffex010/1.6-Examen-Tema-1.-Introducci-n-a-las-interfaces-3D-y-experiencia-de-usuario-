@@ -79,30 +79,79 @@ images.forEach(img => {
 
 class PowerUp {
     constructor(x, y, type) {
-        this.x = x; this.y = y;
-        this.w = 16; this.h = 16;
+        this.x = x; 
+        this.y = y;
+        this.w = 22; // Ligeramente más grandes
+        this.h = 22;
         this.type = type; 
-        this.speed = 2;
+        this.speed = 1.5; // Caída un poco más lenta para poder atraparlos
         this.markedForDeletion = false;
-        this.colors = ['#0088ff', '#ff0044', '#00ffff'];
+        
+        this.colors = ['#0088ff', '#ff0044', '#00ffff']; // Colores base
+        this.glowColors = ['#88ccff', '#ff88aa', '#aaffff']; // Colores de brillo exterior
         this.letters = ['S', 'R', 'T'];
+        
+        this.angle = 0; // Ángulo para rotación
+        this.floatOffset = Math.random() * Math.PI * 2; // Desfase aleatorio para el balanceo
     }
+    
     update() {
         this.y += this.speed;
+        // Balanceo horizontal suave mientras caen
+        this.x += Math.sin(this.angle + this.floatOffset) * 0.8;
+        this.angle += 0.05; // Velocidad a la que gira el cristal
+        
         if (this.y > GAME_HEIGHT) this.markedForDeletion = true;
     }
+    
     draw(ctx) {
-        ctx.fillStyle = this.colors[this.type];
-        ctx.shadowBlur = 10;
+        ctx.save();
+        
+        // Mover el punto de origen al centro del PowerUp para poder rotarlo/escalarlo
+        ctx.translate(this.x + this.w / 2, this.y + this.h / 2);
+        
+        // Efecto de latido (Pulsing) de energía
+        let pulse = 1 + Math.sin(this.angle * 3) * 0.15;
+        ctx.scale(pulse, pulse);
+
+        // Aplicar rotación al cristal exterior
+        ctx.rotate(this.angle);
+
+        // --- Dibujar el Cristal Neón (Rombo) ---
+        ctx.shadowBlur = 15;
         ctx.shadowColor = this.colors[this.type];
-        ctx.fillRect(this.x, this.y, this.w, this.h);
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = "white";
-        ctx.font = "12px monospace";
-        ctx.fillText(this.letters[this.type], this.x + 4, this.y + 12);
+        ctx.strokeStyle = this.colors[this.type];
+        ctx.lineWidth = 2.5;
+        
+        ctx.beginPath();
+        ctx.moveTo(0, -this.h / 2); // Punta Superior
+        ctx.lineTo(this.w / 2, 0);  // Punta Derecha
+        ctx.lineTo(0, this.h / 2);  // Punta Inferior
+        ctx.lineTo(-this.w / 2, 0); // Punta Izquierda
+        ctx.closePath();
+        
+        // Relleno interior translúcido
+        ctx.fillStyle = "rgba(10, 15, 30, 0.7)"; 
+        ctx.fill();
+        ctx.stroke();
+
+        // --- Deshacer la rotación para dibujar la letra derecha ---
+        // Al rotar en negativo el mismo ángulo, el texto se queda completamente estático
+        ctx.rotate(-this.angle);
+
+        // --- Dibujar la Letra ---
+        ctx.fillStyle = "#ffffff";
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = this.glowColors[this.type];
+        // Usamos una fuente limpia que combine con tu Bootstrap
+        ctx.font = "bold 14px 'Orbitron', sans-serif"; 
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(this.letters[this.type], 0, 1);
+
+        ctx.restore();
     }
 }
-
 class Particle {
     constructor(x, y, color) {
         this.x = x; this.y = y;
