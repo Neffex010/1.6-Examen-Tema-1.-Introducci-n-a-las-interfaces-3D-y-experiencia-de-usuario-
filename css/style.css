@@ -1,13 +1,35 @@
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Press+Start+2P&display=swap');
 
 body {
+    background-color: #050508; /* Un negro casi puro con un ligero tono azul marino */
+    color: #e0e0e0;
+    font-family: 'Orbitron', sans-serif; /* Fuente legible pero futurista */
+}
+
+/* Solo los títulos y elementos clave llevan la fuente retro */
+h1, h2, h3, .retro-text {
     font-family: 'Press Start 2P', monospace;
 }
 
+.neon-title {
+    color: #00ffff;
+    text-shadow: 0 0 5px #00ffff, 0 0 15px #00ffff, 0 0 30px #00ffff;
+    letter-spacing: 2px;
+}
+
+/* Efecto de monitor arcade para el canvas */
 canvas {
-    border: 4px solid #444;
-    box-shadow: 0 0 50px rgba(0, 255, 255, 0.2);
+    border: 4px solid #222;
+    border-radius: 8px; /* Ligera curva en las esquinas */
+    box-shadow: 0 0 40px rgba(0, 255, 255, 0.15), 0 0 15px rgba(0, 136, 255, 0.3);
     background-size: cover;
     background-position: center;
     image-rendering: pixelated;
+}
+
+/* Estilo para el recuadro lateral de datos */
+.instructions-panel {
+    background: linear-gradient(135deg, rgba(20,20,30,0.9) 0%, rgba(10,10,15,0.9) 100%);
+    border: 1px solid #0088ff;
+    box-shadow: inset 0 0 15px rgba(0, 136, 255, 0.2);
 }

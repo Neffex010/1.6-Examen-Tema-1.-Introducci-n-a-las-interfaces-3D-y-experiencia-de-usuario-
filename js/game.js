@@ -10,7 +10,6 @@ let level = 1;
 let lives = 3;
 let highScore = parseInt(localStorage.getItem('galagaHighScore')) || 0;
 
-// MEJORA 2: Variable global para el temblor de pantalla (Screen Shake)
 let shakeTime = 0; 
 
 let player;
@@ -63,7 +62,7 @@ const Synth = {
 const imgPlayer = new Image(); imgPlayer.src = 'img/nave.png';
 const imgEnemy = new Image(); imgEnemy.src = 'img/enemigo.png';
 const imgBoss = new Image(); imgBoss.src = 'img/jefe.png';
-const imgFondo = new Image(); imgFondo.src = 'img/fondo.png'; // O .jpg, la que estés usando
+const imgFondo = new Image(); imgFondo.src = 'img/fondo.png'; 
 
 const images = [imgPlayer, imgEnemy, imgBoss, imgFondo];
 let imagesLoaded = 0;
@@ -174,8 +173,6 @@ class Enemy {
         this.markedForDeletion = false;
         this.isDiving = false; 
         this.angle = 0; 
-        
-        // MEJORA 1: Propiedades para animación de Sprite / Wobble
         this.frameX = 0;
         this.timer = Math.floor(Math.random() * 100); 
     }
@@ -190,9 +187,8 @@ class Enemy {
         }
 
         ctx.save();
-        ctx.translate(this.x + this.w / 2, this.y + this.h / 2); // Mover al centro del enemigo
+        ctx.translate(this.x + this.w / 2, this.y + this.h / 2); 
         
-        // Si tienes una imagen estática (1 frame), aplicamos un aleteo por código
         if (frames === 1) {
             let scaleEffect = 1 + Math.sin(this.timer * 0.15) * 0.1;
             ctx.scale(scaleEffect, 1 / scaleEffect); 
@@ -319,16 +315,38 @@ class InputHandler {
         this.keys = [];
         window.addEventListener('keydown', e => {
             if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+            
             if (this.keys.indexOf(e.code) === -1) this.keys.push(e.code);
+            
             if (e.code === 'Enter') {
                 if (gameState === 'START' || gameState === 'GAMEOVER' || gameState === 'VICTORY') initGame();
             }
+
+            // --- NUEVO: Lógica de la Tecla Pausa ---
+            if (e.code === 'KeyP' || e.key === 'p' || e.key === 'P') {
+                if (gameState === 'PLAYING') {
+                    gameState = 'PAUSED';
+                    drawPauseScreen();
+                } else if (gameState === 'PAUSED') {
+                    gameState = 'PLAYING';
+                    animate(); // Reanuda el ciclo del juego
+                }
+            }
         });
+        
         window.addEventListener('keyup', e => {
             const index = this.keys.indexOf(e.code);
             if (index > -1) this.keys.splice(index, 1);
         });
-        window.addEventListener('blur', () => this.keys = []);
+
+        // --- NUEVO: Autopausa al cambiar de ventana ---
+        window.addEventListener('blur', () => {
+            this.keys = [];
+            if (gameState === 'PLAYING') {
+                gameState = 'PAUSED';
+                drawPauseScreen();
+            }
+        });
     }
 }
 
@@ -355,7 +373,7 @@ function initGame() {
     lives = 3; 
     enemySpeed = 2;
     enemyDir = 1;
-    shakeTime = 0; // Reiniciar temblor al inicio
+    shakeTime = 0; 
     gameState = 'PLAYING';
     if (audioCtx.state === 'suspended') audioCtx.resume();
     Synth.start();
@@ -380,7 +398,7 @@ function nextLevel() {
 }
 
 function loseLife() {
-    shakeTime = 25; // Activa Screen Shake fuerte al perder vida
+    shakeTime = 25; 
 
     if (player.hasShield) {
         player.hasShield = false;
@@ -419,15 +437,11 @@ function victory() {
     }
 }
 
-// MEJORA 3: Función que dibuja el filtro de monitor retro
 function drawCRT(ctx) {
-    // Escaneo de líneas horizontales
     ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
     for (let i = 0; i < GAME_HEIGHT; i += 4) {
         ctx.fillRect(0, i, GAME_WIDTH, 1);
     }
-    
-    // Viñeta oscura en los bordes para dar profundidad
     let gradient = ctx.createRadialGradient(
         GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT * 0.4, 
         GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT
@@ -436,6 +450,20 @@ function drawCRT(ctx) {
     gradient.addColorStop(1, "rgba(0,0,0,0.6)");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+}
+
+// --- NUEVO: Función para pintar la pantalla de Pausa ---
+function drawPauseScreen() {
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    ctx.fillStyle = "#00ffff";
+    ctx.textAlign = "center";
+    ctx.font = "40px 'Press Start 2P', monospace";
+    ctx.fillText("PAUSA", GAME_WIDTH / 2, GAME_HEIGHT / 2);
+    ctx.fillStyle = "white";
+    ctx.font = "12px 'Press Start 2P', monospace";
+    ctx.fillText("PRESIONA 'P' PARA CONTINUAR", GAME_WIDTH / 2, GAME_HEIGHT / 2 + 40);
+    drawCRT(ctx); // Aplica el filtro CRT sobre la pausa para mantener el estilo
 }
 
 function drawUI() {
@@ -501,9 +529,11 @@ function drawUI() {
 const input = new InputHandler();
 
 function animate() {
+    // --- NUEVO: Detiene el bucle por completo si el juego está en pausa ---
+    if (gameState === 'PAUSED') return; 
+
     ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
     
-    // INICIO DEL SCREEN SHAKE
     ctx.save();
     if (shakeTime > 0) {
         let magnitude = (shakeTime / 25) * 8;
@@ -549,13 +579,13 @@ function animate() {
                     b.markedForDeletion = true;
                     boss.hp--; 
                     boss.hitTimer = 5; 
-                    shakeTime = 5; // Temblor ligero al darle al jefe
+                    shakeTime = 5; 
                     Synth.bossHit();
                     particles.push(new Particle(b.x, b.y, "lime"));
                     
                     if (boss.hp <= 0) {
                         score += 5000;
-                        shakeTime = 50; // Temblor ÉPICO al matar al jefe
+                        shakeTime = 50; 
                         Synth.explosion();
                         for(let i=0; i<50; i++) particles.push(new Particle(boss.x + boss.w/2, boss.y + boss.h/2, "lime"));
                         boss = null;
@@ -631,10 +661,10 @@ function animate() {
     particles = particles.filter(p => p.alpha > 0);
     if (particles.length > 500) particles = particles.slice(0, 500);
     
-    ctx.restore(); // FIN DEL SCREEN SHAKE (La UI no tiembla, el juego sí)
+    ctx.restore(); 
 
     drawUI();
-    drawCRT(ctx); // Dibuja el filtro retro encima de todo
+    drawCRT(ctx); 
     
     requestAnimationFrame(animate);
 }
