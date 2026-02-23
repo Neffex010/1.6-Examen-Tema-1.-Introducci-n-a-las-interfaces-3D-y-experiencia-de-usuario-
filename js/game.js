@@ -12,12 +12,15 @@ let highScore = parseInt(localStorage.getItem('galagaHighScore')) || 0;
 
 let nextLifeScore = 15000;
 let shakeTime = 0; 
+let levelBannerTimer = 0; 
+let flashTimer = 0;       
 
 let player;
 let enemies = [];
 let particles = [];
 let bullets = [];
 let powerUps = []; 
+let floatingTexts = []; // NUEVO: Array para los textos flotantes
 let boss = null;
 
 let enemyDir = 1;
@@ -83,6 +86,33 @@ images.forEach(img => {
     };
 });
 
+// NUEVO: Clase para los textos de puntuación flotantes
+class FloatingText {
+    constructor(x, y, text, color) {
+        this.x = x;
+        this.y = y;
+        this.text = text;
+        this.color = color;
+        this.alpha = 1;
+        this.dy = -1.5; 
+    }
+    update() {
+        this.y += this.dy;
+        this.alpha -= 0.02; 
+    }
+    draw(ctx) {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, this.alpha);
+        ctx.fillStyle = this.color;
+        ctx.font = "10px 'Press Start 2P', monospace";
+        ctx.textAlign = "center";
+        ctx.shadowBlur = 4;
+        ctx.shadowColor = "black";
+        ctx.fillText(this.text, this.x, this.y);
+        ctx.restore();
+    }
+}
+
 class PowerUp {
     constructor(x, y, type) {
         this.x = x; this.y = y;
@@ -94,6 +124,7 @@ class PowerUp {
         this.colors = ['#0088ff', '#ff0044', '#00ffff']; 
         this.glowColors = ['#88ccff', '#ff88aa', '#aaffff']; 
         this.letters = ['S', 'R', 'T'];
+        this.names = ['SHIELD', 'RAPID!', 'FREEZE!']; // Para el texto flotante
         
         this.angle = 0; 
         this.floatOffset = Math.random() * Math.PI * 2; 
@@ -168,7 +199,6 @@ class Particle {
     }
 }
 
-// MEJORA: Balas aliadas ahora aceptan vectores (vx, vy) para el disparo en abanico
 class Bullet {
     constructor(x, y, vx = 0, vy = -10) {
         this.x = x; this.y = y;
@@ -190,7 +220,6 @@ class Bullet {
     }
 }
 
-// MEJORA: Balas enemigas también aceptan vectores para la Fase 2 del Jefe
 class EnemyBullet {
     constructor(x, y, vx = 0, vy = 6) {
         this.x = x; this.y = y;
@@ -208,7 +237,6 @@ class EnemyBullet {
     draw(ctx) {
         ctx.fillStyle = "#ff0000";
         ctx.beginPath();
-        // Ajustamos el arco al centro exacto
         ctx.arc(this.x + this.w/2, this.y + this.h/2, 4, 0, Math.PI * 2);
         ctx.fill();
     }
@@ -220,11 +248,13 @@ class Enemy {
         this.w = 32; this.h = 32;
         this.markedForDeletion = false;
         this.isDiving = false; 
+        this.isDying = false; 
         this.angle = 0; 
         this.frameX = 0;
         this.timer = Math.floor(Math.random() * 100); 
         this.hp = 1; 
         this.scoreValue = 100;
+        this.hitTimer = 0; 
     }
     draw(ctx) {
         let frames = Math.max(1, Math.floor(imgEnemy.width / imgEnemy.height) || 1);
@@ -244,6 +274,12 @@ class Enemy {
             ctx.scale(scaleEffect, 1 / scaleEffect); 
         }
         
+        if (this.hitTimer > 0) {
+            ctx.globalCompositeOperation = "lighter"; 
+            ctx.globalAlpha = 0.6;
+            this.hitTimer--;
+        }
+
         ctx.drawImage(imgEnemy, this.frameX * sWidth, 0, sWidth, sHeight, -this.w / 2, -this.h / 2, this.w, this.h);
         ctx.restore();
     }
@@ -256,15 +292,9 @@ class TankEnemy extends Enemy {
         this.h = 40;
         this.hp = 3; 
         this.scoreValue = 300; 
-        this.hitTimer = 0; 
     }
 
     draw(ctx) {
-        if (this.hitTimer > 0) {
-            ctx.globalAlpha = 0.5;
-            this.hitTimer--;
-        }
-
         super.draw(ctx); 
         ctx.globalAlpha = 1.0;
 
@@ -281,7 +311,6 @@ class TankEnemy extends Enemy {
     }
 }
 
-// MEJORA: Sistema de Fases del Jefe
 class Boss {
     constructor() {
         this.w = 120; this.h = 100;
@@ -293,35 +322,28 @@ class Boss {
         this.bullets = [];
         this.shootCooldown = 0; 
         this.hitTimer = 0; 
+        this.isDead = false; 
     }
     update() {
-        // Detectar si el jefe está por debajo del 50% de vida (Fase 2)
         let isPhase2 = this.hp <= this.maxHp / 2;
-        
-        // Fase 2 es mucho más rápida y agresiva
         let baseSpeed = isPhase2 ? 5 : 3;
         let currentSpeed = player.slowMoTimer > 0 ? baseSpeed * 0.4 : baseSpeed;
         
         this.x += currentSpeed * this.dir;
         if (this.x > GAME_WIDTH - this.w || this.x < 0) this.dir *= -1;
         
-        // Efecto flotante más violento en Fase 2
         this.y = 80 + Math.sin(Date.now() / (isPhase2 ? 150 : 300)) * (isPhase2 ? 40 : 20);
 
         if (this.shootCooldown <= 0) {
-            // Patrón de disparo basado en la Fase
             if (isPhase2) {
-                // Disparo triple esparcido (Abanico)
                 this.bullets.push(new EnemyBullet(this.x + this.w/2 - 4, this.y + this.h, -3, 5));
                 this.bullets.push(new EnemyBullet(this.x + this.w/2 - 4, this.y + this.h, 0, 6));
                 this.bullets.push(new EnemyBullet(this.x + this.w/2 - 4, this.y + this.h, 3, 5));
             } else {
-                // Disparo simple vertical
                 this.bullets.push(new EnemyBullet(this.x + this.w/2 - 4, this.y + this.h, 0, 6));
             }
             Synth.playTone(200, 'sawtooth', 0.1);
             
-            // Reajuste de cooldown (Más rápido en Fase 2)
             let baseCooldown = isPhase2 ? 25 : 20; 
             this.shootCooldown = player.slowMoTimer > 0 ? baseCooldown * 2.5 : baseCooldown;
         } else {
@@ -339,7 +361,6 @@ class Boss {
         ctx.globalAlpha = 1.0; 
         
         const hpPercent = this.hp / this.maxHp;
-        // La barra se vuelve morada en Fase 2
         ctx.fillStyle = "red";
         ctx.fillRect(this.x, this.y - 15, this.w, 8);
         ctx.fillStyle = this.hp <= this.maxHp / 2 ? "#ff00ff" : "#00ff00";
@@ -378,15 +399,15 @@ class Player {
         this.hasShield = false;
         this.rapidFireTimer = 0;
         this.slowMoTimer = 0;
+        this.tilt = 0; 
     }
     
-    // MEJORA: Hitbox perdonadora (Más pequeña que la imagen visual)
     getHitbox() {
         return {
-            x: this.x + 8,   // Quitar 8px de margen izquierdo
-            y: this.y + 12,  // Quitar 12px de margen superior
-            w: 24,           // Ancho reducido (40 - 16)
-            h: 24            // Alto reducido (40 - 16)
+            x: this.x + 8,   
+            y: this.y + 12,  
+            w: 24,           
+            h: 24            
         };
     }
 
@@ -396,17 +417,26 @@ class Player {
         if (this.rapidFireTimer > 0) this.rapidFireTimer--;
         if (this.slowMoTimer > 0) this.slowMoTimer--;
         
-        if (input.keys.includes('ArrowLeft') && this.x > 0) this.x -= this.speed;
-        if (input.keys.includes('ArrowRight') && this.x < GAME_WIDTH - this.w) this.x += this.speed;
+        let targetTilt = 0;
+
+        if (input.keys.includes('ArrowLeft') && this.x > 0) {
+            this.x -= this.speed;
+            targetTilt = -0.2; 
+        }
+        if (input.keys.includes('ArrowRight') && this.x < GAME_WIDTH - this.w) {
+            this.x += this.speed;
+            targetTilt = 0.2;  
+        }
+
+        this.tilt += (targetTilt - this.tilt) * 0.2;
         
         let currentCooldownRate = this.rapidFireTimer > 0 ? 4 : 12;
         if (input.keys.includes('Space') && this.cooldown === 0) {
             
-            // MEJORA: Ráfaga triple en abanico al tener el PowerUp activo
             if (this.rapidFireTimer > 0) {
-                bullets.push(new Bullet(this.x + 6, this.y, -2, -10)); // Diagonal izq
-                bullets.push(new Bullet(this.x + this.w/2 - 2, this.y, 0, -10)); // Recto
-                bullets.push(new Bullet(this.x + this.w - 10, this.y, 2, -10)); // Diagonal der
+                bullets.push(new Bullet(this.x + 6, this.y, -2, -10)); 
+                bullets.push(new Bullet(this.x + this.w/2 - 2, this.y, 0, -10)); 
+                bullets.push(new Bullet(this.x + this.w - 10, this.y, 2, -10)); 
             } else if (level >= 3) {
                 bullets.push(new Bullet(this.x + 6, this.y));          
                 bullets.push(new Bullet(this.x + this.w - 10, this.y)); 
@@ -419,22 +449,24 @@ class Player {
     }
     draw(ctx) {
         if (this.invincibleTimer > 0 && Math.floor(Date.now() / 100) % 2 === 0) return;
-        ctx.drawImage(imgPlayer, this.x, this.y, this.w, this.h);
+        
+        ctx.save();
+        ctx.translate(this.x + this.w / 2, this.y + this.h / 2);
+        ctx.rotate(this.tilt);
+
+        ctx.drawImage(imgPlayer, -this.w / 2, -this.h / 2, this.w, this.h);
+        
         if (this.hasShield) {
             ctx.strokeStyle = "#0088ff";
             ctx.lineWidth = 3;
             ctx.beginPath();
-            ctx.arc(this.x + this.w/2, this.y + this.h/2, 30, 0, Math.PI * 2);
+            ctx.arc(0, 0, 30, 0, Math.PI * 2); 
             ctx.stroke();
             ctx.fillStyle = "rgba(0, 136, 255, 0.2)";
             ctx.fill();
         }
-        
-        /* DESCOMENTA ESTAS LÍNEAS SI QUIERES VER LA HITBOX VERDE EN PANTALLA (DEBUG)
-        let hb = this.getHitbox();
-        ctx.strokeStyle = "lime";
-        ctx.strokeRect(hb.x, hb.y, hb.w, hb.h);
-        */
+
+        ctx.restore();
     }
 }
 
@@ -442,7 +474,7 @@ class InputHandler {
     constructor() {
         this.keys = [];
         window.addEventListener('keydown', e => {
-            if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+            if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.code)) e.preventDefault();
             
             if (this.keys.indexOf(e.code) === -1) this.keys.push(e.code);
             
@@ -450,7 +482,7 @@ class InputHandler {
                 if (gameState === 'START' || gameState === 'GAMEOVER' || gameState === 'VICTORY') initGame();
             }
 
-            if (e.code === 'KeyP' || e.key === 'p' || e.key === 'P') {
+            if (e.code === 'KeyP') {
                 if (gameState === 'PLAYING') {
                     gameState = 'PAUSED';
                     drawPauseScreen();
@@ -497,6 +529,7 @@ function initGame() {
     enemies = [];
     particles = [];
     powerUps = []; 
+    floatingTexts = []; // Limpiamos textos flotantes
     boss = null;
     score = 0;
     level = 1;
@@ -505,6 +538,8 @@ function initGame() {
     enemySpeed = 2;
     enemyDir = 1;
     shakeTime = 0; 
+    levelBannerTimer = 120; 
+    flashTimer = 0;         
     gameState = 'PLAYING';
     if (audioCtx.state === 'suspended') audioCtx.resume();
     Synth.start();
@@ -516,13 +551,15 @@ function nextLevel() {
     bullets = []; 
     enemies = [];
     powerUps = [];
+    floatingTexts = [];
     enemyDir = 1;
+    levelBannerTimer = 120; 
+    
     if (level === 10) {
         Synth.playTone(300, 'square', 0.5);
         setTimeout(() => Synth.playTone(250, 'square', 0.5), 400);
         boss = new Boss();
     } else {
-        // MEJORA: Escalado de velocidad con límite máximo para evitar lo incontrolable
         enemySpeed = Math.min(4.5, enemySpeed + 0.15);
         Synth.levelUp();
         spawnEnemies();
@@ -531,6 +568,7 @@ function nextLevel() {
 
 function loseLife() {
     shakeTime = 25; 
+    flashTimer = 15; 
 
     if (player.hasShield) {
         player.hasShield = false;
@@ -621,16 +659,33 @@ function drawUI() {
             ctx.fillStyle = "#00ffff";
             ctx.fillText("TIME FREEZE!", GAME_WIDTH / 2, 80);
         }
+
+        if (levelBannerTimer > 0) {
+            ctx.fillStyle = `rgba(0, 255, 255, ${levelBannerTimer / 120})`;
+            ctx.font = "40px 'Press Start 2P', monospace";
+            ctx.fillText(level === 10 ? "BOSS BATTLE!" : `LEVEL ${level}`, GAME_WIDTH / 2, GAME_HEIGHT / 2);
+            levelBannerTimer--;
+        }
+
     } else if (gameState === 'START') {
         ctx.fillStyle = "rgba(0,0,0,0.7)";
         ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
         ctx.fillStyle = "#00ffff";
         ctx.textAlign = "center";
-        ctx.font = "30px 'Press Start 2P', monospace";
-        ctx.fillText("GALAGA JS", GAME_WIDTH / 2, GAME_HEIGHT / 2 - 20);
-        ctx.fillStyle = "white";
+        ctx.font = "40px 'Press Start 2P', monospace";
+        ctx.fillText("GALAGA JS", GAME_WIDTH / 2, GAME_HEIGHT / 2 - 50);
+        
+        ctx.fillStyle = "#aaaaaa";
         ctx.font = "12px 'Press Start 2P', monospace";
-        ctx.fillText("PRESS ENTER TO START", GAME_WIDTH / 2, GAME_HEIGHT / 2 + 30);
+        ctx.fillText("FLECHAS: MOVER", GAME_WIDTH / 2, GAME_HEIGHT / 2 + 10);
+        ctx.fillText("ESPACIO: DISPARAR", GAME_WIDTH / 2, GAME_HEIGHT / 2 + 30);
+        ctx.fillText("P: PAUSAR", GAME_WIDTH / 2, GAME_HEIGHT / 2 + 50);
+        
+        let pulse = Math.floor(Date.now() / 600) % 2 === 0 ? "white" : "rgba(255,255,255,0)";
+        ctx.fillStyle = pulse;
+        ctx.font = "14px 'Press Start 2P', monospace";
+        ctx.fillText("PRESS ENTER TO START", GAME_WIDTH / 2, GAME_HEIGHT / 2 + 100);
+
     } else if (gameState === 'GAMEOVER') {
         ctx.fillStyle = "rgba(0,0,0,0.8)";
         ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
@@ -680,20 +735,19 @@ function animate() {
         player.update(input);
         player.draw(ctx);
         
-        // Generamos la Hitbox perdonadora del jugador para calcular todas las colisiones enemigas
         let pHb = player.getHitbox();
 
-        // Validar si ganaste una vida extra (LÍMITE MÁXIMO DE 3)
-       // Validar si ganaste una recompensa
         if (score >= nextLifeScore) {
             if (lives < 3) {
-                lives++; // Te da la vida si te falta alguna
+                lives++; 
                 Synth.extraLife();
+                floatingTexts.push(new FloatingText(player.x + player.w/2, player.y, "1UP!", "#00ff00"));
             } else {
-                score += 5000; // BONO de 5000 puntos por jugar perfecto
-                Synth.powerUp(); // Suena distinto para que sepas que fue un bono
+                score += 5000; 
+                Synth.powerUp(); 
+                floatingTexts.push(new FloatingText(player.x + player.w/2, player.y, "+5000", "#ffff00"));
             }
-            nextLifeScore += 15000; // Se actualiza la meta para la siguiente recompensa
+            nextLifeScore += 15000; 
         }
         
         bullets.forEach(b => b.update());
@@ -703,13 +757,15 @@ function animate() {
         powerUps.forEach(pu => {
             pu.update();
             pu.draw(ctx);
-            // Colisión con Power Up usando Hitbox perdonadora
             if (pHb.x < pu.x + pu.w && pHb.x + pHb.w > pu.x &&
                 pHb.y < pu.y + pu.h && pHb.y + pHb.h > pu.y) {
                 pu.markedForDeletion = true;
                 Synth.powerUp();
+                
+                // Texto flotante al agarrar Power-Up
+                floatingTexts.push(new FloatingText(pu.x, pu.y, pu.names[pu.type], pu.colors[pu.type]));
+
                 if (pu.type === 0) player.hasShield = true;
-                // MEJORA: Tiempo de Power-Ups nerfeado a 180 (3 segundos)
                 if (pu.type === 1) player.rapidFireTimer = 180; 
                 if (pu.type === 2) player.slowMoTimer = 180; 
             }
@@ -718,9 +774,10 @@ function animate() {
         
         if (boss) {
             boss.update();
-            boss.draw(ctx);
+            if (!boss.isDead) boss.draw(ctx);
+            
             bullets.forEach(b => {
-                if (!b.markedForDeletion && boss &&
+                if (!b.markedForDeletion && boss && !boss.isDead &&
                     b.x < boss.x + boss.w && b.x + b.w > boss.x &&
                     b.y < boss.y + boss.h && b.y + b.h > boss.y) {
                     
@@ -731,45 +788,61 @@ function animate() {
                     Synth.bossHit();
                     particles.push(new Particle(b.x, b.y, "lime"));
                     
-                    if (boss.hp <= 0) {
+                    if (boss.hp <= 0 && !boss.isDead) {
+                        boss.isDead = true; 
                         score += 5000;
+                        floatingTexts.push(new FloatingText(boss.x + boss.w/2, boss.y + boss.h/2, "+5000", "#ff00ff"));
                         shakeTime = 50; 
                         Synth.explosion();
                         for(let i=0; i<50; i++) particles.push(new Particle(boss.x + boss.w/2, boss.y + boss.h/2, "lime"));
-                        boss = null;
                         setTimeout(() => { victory(); }, 2000);
                     }
                 }
             });
-            if (boss) {
+            
+            if (boss && !boss.isDead) {
                 boss.bullets.forEach(bb => {
-                    // Colisión Balas del Jefe vs Hitbox perdonadora
                     if (bb.x < pHb.x + pHb.w && bb.x + bb.w > pHb.x &&
                         bb.y < pHb.y + pHb.h && bb.y + bb.h > pHb.y) {
                         if (player.invincibleTimer <= 0) loseLife();
                         bb.markedForDeletion = true;
                     }
                 });
-                // Colisión física Jefe vs Hitbox perdonadora
                 if (pHb.x < boss.x + boss.w && pHb.x + pHb.w > boss.x &&
                     pHb.y < boss.y + boss.h && pHb.y + pHb.h > boss.y) {
                     if (player.invincibleTimer <= 0) loseLife();
                 }
             }
+
+            if (boss && boss.isDead) {
+                boss = null;
+            }
+
         } else {
             let hitEdge = false;
             let currentEnemySpeed = player.slowMoTimer > 0 ? enemySpeed * 0.4 : enemySpeed;
             
-            // MEJORA: Limitador global de Kamikazes
             let activeDivers = enemies.filter(e => e.isDiving).length;
-            let maxDivers = Math.min(1 + Math.floor(level / 2), 5); // Max 5 simultáneos en lvl muy alto
+            let maxDivers = Math.min(1 + Math.floor(level / 2), 5); 
             
+            // NUEVO: Inteligencia Adaptativa. Mientras menos enemigos queden, más probabilidades tienen de atacar
+            let totalEnemiesAlive = Math.max(enemies.length, 1);
+            let adaptiveMultiplier = Math.max(1, 15 / totalEnemiesAlive); 
+
             enemies.forEach(en => {
+                if (en.isDying) {
+                    en.draw(ctx);
+                    if (en.hitTimer <= 0) en.markedForDeletion = true;
+                    return; 
+                }
+
                 if (!en.isDiving) {
                     en.x += currentEnemySpeed * enemyDir;
                     if (en.x > GAME_WIDTH - en.w || en.x < 0) hitEdge = true;
                     
-                    let diveChance = 0.0002 + (level * 0.0001);
+                    let baseDiveChance = 0.0002 + (level * 0.0001);
+                    let diveChance = baseDiveChance * adaptiveMultiplier; // Se aplica el multiplicador
+                    
                     if (Math.random() < diveChance && level >= 2 && activeDivers < maxDivers) {
                         en.isDiving = true;
                         activeDivers++;
@@ -782,7 +855,7 @@ function animate() {
                     
                     if (en.y > GAME_HEIGHT) {
                         en.y = -50; 
-                        en.isDiving = false; // Devuelto a la formación
+                        en.isDiving = false; 
                         if (en instanceof TankEnemy) {
                             en.hp = 3; 
                         }
@@ -791,22 +864,27 @@ function animate() {
                 en.draw(ctx);
                 
                 bullets.forEach(b => {
-                    if (!b.markedForDeletion && !en.markedForDeletion &&
+                    if (!b.markedForDeletion && !en.markedForDeletion && !en.isDying &&
                         b.x < en.x + en.w && b.x + b.w > en.x &&
                         b.y < en.y + en.h && b.y + b.h > en.y) {
                         
                         b.markedForDeletion = true;
                         en.hp--; 
+                        en.hitTimer = 4; 
 
                         if (en instanceof TankEnemy) {
-                            en.hitTimer = 5;
                             Synth.bossHit();
                             particles.push(new Particle(b.x, b.y, "white"));
                         }
 
                         if (en.hp <= 0) {
-                            en.markedForDeletion = true;
-                            score += (en.isDiving ? en.scoreValue * 2 : en.scoreValue); 
+                            en.isDying = true; 
+                            let pointsEarned = en.isDiving ? en.scoreValue * 2 : en.scoreValue;
+                            score += pointsEarned; 
+                            
+                            // Texto flotante de los puntos obtenidos
+                            floatingTexts.push(new FloatingText(en.x + en.w/2, en.y, `+${pointsEarned}`, "#00ffff"));
+
                             Synth.explosion();
                             for (let i = 0; i < 8; i++) particles.push(new Particle(en.x + en.w/2, en.y + en.h/2, "orange"));
                             
@@ -818,7 +896,6 @@ function animate() {
                     }
                 });
 
-                // MEJORA: Colisión enemiga vs Hitbox perdonadora del jugador
                 if (pHb.x < en.x + en.w && pHb.x + pHb.w > en.x &&
                     pHb.y < en.y + en.h && pHb.y + pHb.h > en.y) {
                     if (player.invincibleTimer <= 0) {
@@ -833,7 +910,7 @@ function animate() {
             if (hitEdge) {
                 enemyDir *= -1;
                 enemies.forEach(en => {
-                    if (!en.isDiving) {
+                    if (!en.isDiving && !en.isDying) {
                         en.y += 20;
                         if (en.x < 0) en.x = 0;
                         if (en.x > GAME_WIDTH - en.w) en.x = GAME_WIDTH - en.w;
@@ -849,9 +926,20 @@ function animate() {
     particles = particles.filter(p => p.alpha > 0);
     if (particles.length > 500) particles = particles.slice(0, 500);
     
+    // Dibujamos y actualizamos los textos flotantes antes de la UI
+    floatingTexts.forEach(ft => { ft.update(); ft.draw(ctx); });
+    floatingTexts = floatingTexts.filter(ft => ft.alpha > 0);
+
     ctx.restore(); 
 
     drawUI();
+
+    if (flashTimer > 0) {
+        ctx.fillStyle = `rgba(255, 0, 0, ${flashTimer / 45})`; 
+        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        flashTimer--;
+    }
+
     drawCRT(ctx); 
     
     requestAnimationFrame(animate);
