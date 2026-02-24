@@ -15,7 +15,6 @@ let shakeTime = 0;
 let levelBannerTimer = 0; 
 let flashTimer = 0;       
 
-
 let currentWave = 1;
 let maxWaves = 2;
 
@@ -436,6 +435,8 @@ class Player {
 class InputHandler {
     constructor() {
         this.keys = [];
+        
+        // 1. Controles de teclado originales
         window.addEventListener('keydown', e => {
             if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.code)) e.preventDefault();
             if (this.keys.indexOf(e.code) === -1) this.keys.push(e.code);
@@ -451,14 +452,64 @@ class InputHandler {
                 }
             }
         });
+        
         window.addEventListener('keyup', e => {
             const index = this.keys.indexOf(e.code);
             if (index > -1) this.keys.splice(index, 1);
         });
+        
         window.addEventListener('blur', () => {
             this.keys = [];
             if (gameState === 'PLAYING') { gameState = 'PAUSED'; drawPauseScreen(); }
         });
+
+        // 2. Inicializar controles táctiles
+        this.setupMobileControls();
+    }
+
+    setupMobileControls() {
+        const mapButton = (id, keyCode) => {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+
+            const press = (e) => {
+                e.preventDefault(); 
+                
+                if (keyCode === 'Enter') {
+                    if (gameState === 'START' || gameState === 'GAMEOVER' || gameState === 'VICTORY') initGame();
+                } else if (keyCode === 'KeyP') {
+                    if (gameState === 'PLAYING') {
+                        gameState = 'PAUSED'; drawPauseScreen();
+                    } else if (gameState === 'PAUSED') {
+                        gameState = 'PLAYING'; animate(); 
+                    }
+                } else {
+                    if (this.keys.indexOf(keyCode) === -1) this.keys.push(keyCode);
+                }
+            };
+
+            const release = (e) => {
+                e.preventDefault();
+                const index = this.keys.indexOf(keyCode);
+                if (index > -1) this.keys.splice(index, 1);
+            };
+
+            // Eventos táctiles para celular
+            btn.addEventListener('touchstart', press, { passive: false });
+            btn.addEventListener('touchend', release, { passive: false });
+            btn.addEventListener('touchcancel', release, { passive: false });
+            
+            // Eventos de ratón por si haces pruebas dando clic en la PC
+            btn.addEventListener('mousedown', press);
+            btn.addEventListener('mouseup', release);
+            btn.addEventListener('mouseleave', release);
+        };
+
+        mapButton('btn-left', 'ArrowLeft');
+        mapButton('btn-right', 'ArrowRight');
+        mapButton('btn-shoot', 'Space');
+        mapButton('btn-start', 'Enter');
+        mapButton('btn-pause', 'KeyP');
     }
 }
 

@@ -33,3 +33,26 @@ canvas {
     border: 1px solid #0088ff;
     box-shadow: inset 0 0 15px rgba(0, 136, 255, 0.2);
 }
+/* --- ADAPTACIÓN PARA DISPOSITIVOS MÓVILES --- */
+
+canvas {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Mostrar controles y ocultar panel lateral en pantallas de celular */
+@media (max-width: 768px) {
+    #mobile-controls {
+        display: block !important;
+    }
+    .instructions-panel {
+        display: none; 
+    }
+}
+
+/* Evitar comportamientos extraños al tocar la pantalla rápidamente */
+#mobile-controls button {
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+}
