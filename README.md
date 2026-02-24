@@ -1,4 +1,4 @@
-# 🚀 Galactic - 2D 
+# 🚀 Galactic - Swarm
 
 <img width="1377" height="995" alt="image" src="https://github.com/user-attachments/assets/be30a46f-1102-407a-aca4-ee73da5785b4" />
 
